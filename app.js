@@ -41,11 +41,19 @@ app.get('/org', (req, res) => {
         .then(data => res.json(data))
         .catch(err => res.json(err))
 })
-app.get('/routes', (req, res) => {
-    routeModel.find()
-        .then(data => res.json(data))
-        .catch(err => res.json(err))
-})
+app.get('/routes/:id', (req, res) => {
+    const { id } = req.params;
+    // console.log(id)
+    routeModel.findOne({ org: id })
+        .then(find => {
+            if (!find) {
+                return res.status(404).json({ message: 'Route not found' });
+            }
+            res.json(find);
+        })
+        .catch(err => res.status(500).json({ error: err.message }));
+});
+
 app.get('/stops', (req, res) => {
     stopModel.find()
         .then(data => res.json(data))
@@ -177,7 +185,7 @@ app.post('/emp-login', async (req, res) => {
 
 app.post('/punchIn', async (req, res) => {
 
-    const { lat, long, empId, empOrgId, punchedInAt,punchedInAtDate } = req.body
+    const { lat, long, empId, empOrgId, punchedInAt, punchedInAtDate } = req.body
 
 
     const data = {
@@ -196,11 +204,11 @@ app.post('/punchIn', async (req, res) => {
 
         await PunchInModel.create(data);
         // console.log("Data inserted:", data);
-        return res.json({ message: "added", punchedInAt: punchedInAt  });
+        return res.json({ message: "added", punchedInAt: punchedInAt });
 
     } catch (error) {
         console.error("Error Punching In :", error);
-        return res.status(500).json({ message: "nadded"});
+        return res.status(500).json({ message: "nadded" });
     }
 });
 
@@ -228,55 +236,84 @@ app.post('/add-emp', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
-app.post('/add-route', async (req, res) => {
+app.post('/add-route/:id', async (req, res) => {
+    const { id } = req.params
     const { name, org, stop, vehicleNo } = req.body;
+    const ifAreadyRoute = await routeModel.findOne({ org: id })
+    if (ifAreadyRoute) {
+        res.status(201).json({ message: 'Found' });
+    } else {
+        // Check for required fields
+        if (!name || !org) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
 
-    // Check for required fields
-    if (!name || !org) {
-        return res.status(400).json({ error: 'Missing required fields' });
+        const data = {
+            name,
+            org,
+            stop,
+            vehicleNo
+        };
+
+        try {
+            await routeModel.insertMany([data]);
+            res.status(201).json({ message: 'Route added successfully' });
+        } catch (error) {
+            console.error('Error adding route:', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
     }
 
-    const data = {
-        name,
-        org,
-        stop,
-        vehicleNo
-    };
 
-    try {
-        await routeModel.insertMany([data]);
-        res.status(201).json({ message: 'Route added successfully' });
-    } catch (error) {
-        console.error('Error adding route:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
 });
+
+// app.put('/update-PunchIn/:id', async (req, res) => {
+//     try {
+//         const { id } = req.params;
+//         const updates = req.body;
+//         console.log(updates)
+
+//         // Remove empty fields from the updates object
+//         Object.keys(updates).forEach(key => {
+//             if (updates[key] === '') {
+//                 delete updates[key];
+//             }
+//         });
+
+//         const updateTrip = await PunchInModel.findOneAndUpdate({ empId: id }, updates, { new: true });
+
+//         if (!updateTrip) {
+//             return res.status(404).send({ error: 'PunchIn not found' });
+//         }
+
+//         res.status(201).json({ message: 'PunchOut updated successfully' });
+//     } catch (error) {
+//         res.status(500).send({ error: 'Error updating Trip' });
+//     }
+// });
+
 
 app.put('/update-PunchIn/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
-        console.log(updates)
+        const { punchedOutAt } = req.body;
 
-        // Remove empty fields from the updates object
-        Object.keys(updates).forEach(key => {
-            if (updates[key] === '') {
-                delete updates[key];
-            }
-        });
+        // Find the most recent punchIn entry for the user
+        const punchInEntry = await PunchInModel.findOne({ empId: id }).sort({ punchedInAt: -1 }).exec();
 
-        const updateTrip = await PunchInModel.findOneAndUpdate({ empId: id }, updates, { new: true });
-
-        if (!updateTrip) {
+        if (!punchInEntry) {
             return res.status(404).send({ error: 'PunchIn not found' });
         }
+
+        // Update the punchOutAt field
+        punchInEntry.punchedOutAt = punchedOutAt;
+        await punchInEntry.save();
 
         res.status(201).json({ message: 'PunchOut updated successfully' });
     } catch (error) {
         res.status(500).send({ error: 'Error updating Trip' });
     }
 });
-
 app.post('/add-stop', async (req, res) => {
     const { name, org, lat, long, radius } = req.body;
 
@@ -302,6 +339,23 @@ app.post('/add-stop', async (req, res) => {
     }
 });
 
+
+app.delete('/delete-route/:id', async (req, res) => {
+    const { id } = req.params
+    console.log(id)
+    try {
+        const deletedRoom = await routeModel.findOneAndDelete({ org: id });
+        if (deletedRoom) {
+            res.status(200).json({ message: `Room with room code ${id} deleted successfully` });
+        } else {
+            res.status(404).json({ message: `Room with room code ${id} not found` });
+        }
+    } catch (err) {
+        console.error('Error deleting room:', err);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+
+})
 
 
 app.listen(port, () => {
